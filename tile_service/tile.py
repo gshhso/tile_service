@@ -34,19 +34,24 @@ def build_rtree_index(
         with rasterio.open(image) as src:
             bounds.append(box(*src.bounds))
     luotu = gpd.GeoDataFrame({"path": image_list, "geometry": bounds}, crs="EPSG:4326")  # type: ignore
+    
+    # 保存空间索引
     with open(save_root / index_name, "wb") as f:
         pickle.dump(luotu.sindex, f)
-    with open(save_root / luotu_name, "w") as f:
-        luotu.to_file(f)
+    
+    # 保存GeoDataFrame，直接使用文件路径
+    luotu.to_file(save_root / luotu_name)
 
 
 def load_rtree_index(
     save_path: Pathlike, luotu_path: Pathlike
 ) -> tuple[gpd.GeoDataFrame, SIndex]:
+    # 加载空间索引
     with open(save_path, "rb") as f:
         sindex = pickle.load(f)
-    with open(luotu_path, "r") as f:
-        gdf = gpd.read_file(f)
+    
+    # 加载GeoDataFrame，直接使用文件路径
+    gdf = gpd.read_file(luotu_path)
     return gdf, sindex
 
 
