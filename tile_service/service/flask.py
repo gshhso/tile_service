@@ -1,13 +1,19 @@
-from flask import Flask, Response, request, jsonify
+from io import BytesIO
 from pathlib import Path
-from typing import Any, Sequence
+
 import numpy as np
-import xarray as xr
+from flask import Flask, Response
 from geopandas import GeoDataFrame
 from geopandas.sindex import SpatialIndex
-from io import BytesIO
 
-from ..tile import BBOX, XYZ, Pathlike, build_rtree_index
+from ..tile import (
+    Pathlike,
+    build_rtree_index,
+    convert_xyz_to_bbox,
+    filter_intersect_image,
+    get_tiles,
+    load_dataarray,
+)
 
 
 # 配置管理
@@ -183,12 +189,6 @@ class TileService:
         Returns:
                 瓦片数据的numpy数组
         """
-        from ..tile import (
-            convert_xyz_to_bbox,
-            filter_intersect_image,
-            load_dataarray,
-            get_tiles,
-        )
 
         # 转换XYZ坐标为地理边界框
         bbox = convert_xyz_to_bbox((x, y, z))
@@ -326,7 +326,7 @@ class TileService:
 
     def build_index(
         self,
-        image_list: Sequence[Pathlike],
+        image_list: list[Pathlike],
         save_root: Pathlike,
         luotu_name: str = "luotu.geojson",
         index_name: str = "index.pkl",
