@@ -1,10 +1,13 @@
+from collections.abc import Sequence
 from io import BytesIO
 from pathlib import Path
 
+import geopandas as gpd
 import numpy as np
 from flask import Flask, Response
 from geopandas import GeoDataFrame
 from geopandas.sindex import SpatialIndex
+from PIL import Image
 
 from ..tile import (
     Pathlike,
@@ -13,6 +16,7 @@ from ..tile import (
     filter_intersect_image,
     get_tiles,
     load_dataarray,
+    load_rtree_index,
 )
 
 
@@ -140,8 +144,6 @@ class TileService:
         Returns:
                 GeoDataFrame和空间索引的元组
         """
-        from ..tile import load_rtree_index
-        import geopandas as gpd
 
         # 检查索引文件是否存在
         if not (
@@ -237,21 +239,8 @@ class TileService:
         Returns:
                 图像字节数据
         """
-        from PIL import Image
 
-        # 确保数据在有效范围内
-        data = np.clip(data, 0, 255).astype(np.uint8)
-
-        # 创建PIL图像
-        if data.ndim == 2:
-            image = Image.fromarray(data, mode="L")
-        elif data.shape[2] == 3:
-            image = Image.fromarray(data, mode="RGB")
-        elif data.shape[2] == 4:
-            image = Image.fromarray(data, mode="RGBA")
-        else:
-            # 取前3个波段作为RGB
-            image = Image.fromarray(data[:, :, :3], mode="RGB")
+        image = Image.fromarray(data, mode="RGB")
 
         # 转换为字节流
         buffer = BytesIO()
@@ -326,7 +315,7 @@ class TileService:
 
     def build_index(
         self,
-        image_list: list[Pathlike],
+        image_list: Sequence[Pathlike],
         save_root: Pathlike,
         luotu_name: str = "luotu.geojson",
         index_name: str = "index.pkl",
