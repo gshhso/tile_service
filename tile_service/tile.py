@@ -75,9 +75,18 @@ def load_dataarrays(root: Pathlike) -> xr.DataArray:
     return merge.merge_arrays(dataarrays)
 
 
-def get_tiles(dataarray: xr.DataArray, bbox: BBOX) -> np.ndarray:
-    return dataarray.sel(**get_slice(bbox)).to_numpy()
+def get_tile(dataarray: xr.DataArray, bbox: BBOX) -> np.ndarray:
+    """
+    从数据数组中提取瓦片，支持超出边界时的0填充
+    """
+    # 1. 先用 clip_box 裁剪到 bbox 范围（只保留相交部分）
+    minx, miny, maxx, maxy = bbox
+    clipped = dataarray.rio.clip_box(minx=minx, maxx=maxx, maxy=maxy, miny=miny)
+    # 2. 再用 pad_box 填充到完整的 bbox 范围（超出部分用0填充）
+    padded = clipped.rio.pad_box(minx=minx, maxx=maxx, maxy=maxy, miny=miny)
+    return padded.to_numpy().transpose(1, 2, 0)
 
 
 def convert_xyz_to_bbox(xyz: XYZ) -> BBOX:
     return mercantile.bounds(xyz[0], xyz[1], xyz[2])
+

@@ -14,7 +14,7 @@ from ..tile import (
     build_rtree_index,
     convert_xyz_to_bbox,
     filter_intersect_image,
-    get_tiles,
+    get_tile,
     load_dataarray,
     load_rtree_index,
 )
@@ -216,17 +216,8 @@ class TileService:
             dataarray = merge.merge_arrays(dataarrays)
 
         # 提取瓦片数据
-        tile_data = get_tiles(dataarray, bbox)
-
-        # 确保数据维度正确 (H, W, C)
-        if tile_data.ndim == 2:
-            # 单波段转为RGB
-            tile_data = np.stack([tile_data] * 3, axis=-1)
-        elif tile_data.ndim == 3 and tile_data.shape[0] < tile_data.shape[2]:
-            # 调整维度顺序从 (C, H, W) 到 (H, W, C)
-            tile_data = np.transpose(tile_data, (1, 2, 0))
-
-        return tile_data.astype(np.uint8)
+        tile_data = get_tile(dataarray, bbox)
+        return tile_data
 
     def _array_to_image(self, data: np.ndarray, format: str = "PNG") -> bytes:
         """
@@ -389,9 +380,12 @@ def register_routes(app: Flask, tile_service: TileService) -> None:
                 mimetype=content_type,
                 headers={
                     "Cache-Control": "public, max-age=86400",  # 缓存1天
-                    "Access-Control-Allow-Origin": "*",  # 允许跨域
+                    # "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                    "Pragma": "no-cache",
+                    "Access-Control-Allow-Origin": "*",
                 },
             )
+                    
         except Exception as e:
             return Response(
                 f"获取瓦片失败: {str(e)}", status=500, mimetype="text/plain"
