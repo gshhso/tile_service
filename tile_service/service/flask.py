@@ -27,8 +27,9 @@ class TileServiceConfig:
     def __init__(
         self,
         data_root: Pathlike,
-        index_file: Pathlike | None = "index.pkl",
-        luotu_file: Pathlike | None = "luotu.geojson",
+        index_root: Pathlike | None = None,
+        index_file: Pathlike = "index.pkl",
+        luotu_file: Pathlike = "luotu.geojson",
         tile_size: int = 256,
         cache_size: int = 128,
         image_format: str = "PNG",
@@ -38,15 +39,17 @@ class TileServiceConfig:
 
         Args:
                 data_root: 数据根目录路径
-                index_file: 空间索引文件路径
-                luotu_file: 落图文件路径
+                index_root: 索引文件根目录路径,若未提供则为data_root
+                index_file: 空间索引文件路径,若未提供则尝试在data_root下寻找，若仍未找到则触发build index
+                luotu_file: 落图文件路径,若未提供则尝试在data_root下寻找，若仍未找到则触发build index
                 tile_size: 瓦片大小，默认256x256
                 cache_size: 缓存大小限制
                 image_format: 输出图像格式，支持PNG与JPEG
         """
         self.data_root = Path(data_root)
-        self.index_file = self.data_root / index_file if index_file else None
-        self.luotu_file = self.data_root / luotu_file if luotu_file else None
+        self.index_root = Path(index_root) if index_root else self.data_root
+        self.index_path = self.index_root / index_file
+        self.luotu_path = self.index_root / luotu_file
         self.tile_size = tile_size
         self.cache_size = cache_size
         self.image_format = image_format.upper()
@@ -127,8 +130,9 @@ class TileService:
         Args:
                 config: 服务配置对象
                         - data_root: 数据根目录路径
-                        - index_file: 空间索引文件路径, 若未提供则尝试在data_root下寻找，若仍未找到则触发build index
-                        - luotu_file: 落图文件路径， 若未提供则尝试在data_root下寻找，若仍未找到则触发build index
+                        - index_root: 索引文件根目录路径
+                        - index_path: 空间索引文件路径
+                        - luotu_path: 落图文件路径
                         - tile_size: 瓦片大小，默认256x256
                         - cache_size: 缓存大小限制
                         - image_format: 输出图像格式
@@ -144,20 +148,18 @@ class TileService:
         Returns:
                 GeoDataFrame和空间索引的元组
         """
-
+        index_root, index_path, luotu_path = self.config.index_root, self.config.index_path, self.config.luotu_path
         # 检查索引文件是否存在
         if not (
-            self.config.index_file
-            and self.config.index_file.exists()
-            and self.config.luotu_file
-            and self.config.luotu_file.exists()
+            index_path.exists()
+            and luotu_path.exists()
         ):
             # 自动构建索引
-            image_list = list(self.config.data_root.rglob("**/*.tif"))
+            image_list = list(index_root.rglob("**/*.tif"))
             if not image_list:
                 # 没有tif文件时，创建空的GeoDataFrame和索引
                 print(
-                    f"警告: 在 {self.config.data_root} 中未找到任何.tif文件，将使用空索引"
+                    f"警告: 在 {index_root} 中未找到任何.tif文件，将使用空索引"
                 )
                 empty_gdf = gpd.GeoDataFrame(
                     {"path": [], "geometry": []}, crs="EPSG:4326"
@@ -169,17 +171,12 @@ class TileService:
             self.build_index(
                 image_paths,
                 self.config.data_root,
-                self.config.luotu_file.name
-                if self.config.luotu_file
-                else "luotu.geojson",
-                self.config.index_file.name if self.config.index_file else "index.pkl",
+                luotu_path.name,
+                index_path.name
             )
 
-        # 确保文件路径不为None
-        if not self.config.index_file or not self.config.luotu_file:
-            raise ValueError("索引文件或落图文件路径未正确设置")
 
-        return load_rtree_index(self.config.index_file, self.config.luotu_file)
+        return load_rtree_index(index_path, luotu_path)
 
     def _xyz_to_tile_data(self, x: int, y: int, z: int) -> np.ndarray:
         """
