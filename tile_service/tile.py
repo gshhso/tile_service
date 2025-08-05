@@ -1,17 +1,17 @@
-import rioxarray as rxr
-import xarray as xr
-import numpy as np
-import rasterio
-import geopandas as gpd
-import mercantile
+import functools
 import pickle
-
-from geopandas.sindex import SpatialIndex as SIndex
-from shapely.geometry import box
 from pathlib import Path
 from typing import cast
+
+import geopandas as gpd
+import mercantile
+import numpy as np
+import rasterio
+import rioxarray as rxr
+import xarray as xr
+from geopandas.sindex import SpatialIndex as SIndex
 from rioxarray import merge
-from functools import lru_cache
+from shapely.geometry import box
 
 Pathlike = str | Path
 BBOX = tuple[float, float, float, float]
@@ -34,19 +34,24 @@ def build_rtree_index(
         with rasterio.open(image) as src:
             bounds.append(box(*src.bounds))
     luotu = gpd.GeoDataFrame({"path": image_list, "geometry": bounds}, crs="EPSG:4326")  # type: ignore
+
+    # 保存空间索引
     with open(save_root / index_name, "wb") as f:
         pickle.dump(luotu.sindex, f)
-    with open(save_root / luotu_name, "w") as f:
-        luotu.to_file(f)
+
+    # 保存GeoDataFrame，直接使用文件路径
+    luotu.to_file(save_root / luotu_name)
 
 
 def load_rtree_index(
     save_path: Pathlike, luotu_path: Pathlike
 ) -> tuple[gpd.GeoDataFrame, SIndex]:
+    # 加载空间索引
     with open(save_path, "rb") as f:
         sindex = pickle.load(f)
-    with open(luotu_path, "r") as f:
-        gdf = gpd.read_file(f)
+
+    # 加载GeoDataFrame，直接使用文件路径
+    gdf = gpd.read_file(luotu_path)
     return gdf, sindex
 
 
@@ -59,17 +64,29 @@ def filter_intersect_image(
     return filtered_luotu["path"].to_list()
 
 
-@lru_cache(maxsize=None)
+@functools.cache
 def load_dataarray(path: Pathlike) -> xr.DataArray:
     return cast(xr.DataArray, rxr.open_rasterio(path))
+
 
 def load_dataarrays(root: Pathlike) -> xr.DataArray:
     image_list = list(Path(root).rglob("**/*.tif"))
     dataarrays = [load_dataarray(image) for image in image_list]
     return merge.merge_arrays(dataarrays)
 
-def get_tiles(dataarray: xr.DataArray, bbox: BBOX) -> np.ndarray:
-    return dataarray.sel(**get_slice(bbox)).to_numpy()
+
+def get_tile(dataarray: xr.DataArray, bbox: BBOX) -> np.ndarray:
+    """
+    从数据数组中提取瓦片，支持超出边界时的0填充
+    """
+    # 1. 先用 clip_box 裁剪到 bbox 范围（只保留相交部分）
+    minx, miny, maxx, maxy = bbox
+    clipped = dataarray.rio.clip_box(minx=minx, maxx=maxx, maxy=maxy, miny=miny)
+    # 2. 再用 pad_box 填充到完整的 bbox 范围（超出部分用0填充）
+    padded = clipped.rio.pad_box(minx=minx, maxx=maxx, maxy=maxy, miny=miny)
+    return padded.to_numpy().transpose(1, 2, 0)
+
 
 def convert_xyz_to_bbox(xyz: XYZ) -> BBOX:
     return mercantile.bounds(xyz[0], xyz[1], xyz[2])
+
