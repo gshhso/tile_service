@@ -13,17 +13,17 @@
 
 ## 安装
 
-### 使用pip安装
+### 使用pip+git直接安装
 
 ```bash
 # 安装基础依赖
-pip install tile-service
+pip install git+https://github.com/yourusername/tile_service.git
 
 # 安装开发依赖
-pip install tile-service[dev]
+pip install "git+https://github.com/yourusername/tile_service.git#egg=tile-service[dev]"
 
 # 安装Jupyter支持
-pip install tile-service[jupyter]
+pip install "git+https://github.com/yourusername/tile_service.git#egg=tile-service[jupyter]"
 ```
 
 ### 从源码安装
@@ -126,4 +126,4 @@ uv run pytest
 
 ## 许可证
 
-MIT License 
+MIT License
