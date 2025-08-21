@@ -4,10 +4,12 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import typing
 from flask import Flask, Response
 from geopandas import GeoDataFrame
 from geopandas.sindex import SpatialIndex
 from PIL import Image
+from typing import Callable, TypeVar, TypeAlias
 
 from ..tile import (
     Pathlike,
@@ -19,6 +21,7 @@ from ..tile import (
     load_rtree_index,
 )
 
+Func: TypeAlias = Callable[[np.ndarray], np.ndarray]
 
 # 配置管理
 class TileServiceConfig:
@@ -33,6 +36,7 @@ class TileServiceConfig:
         tile_size: int = 256,
         cache_size: int = 128,
         image_format: str = "PNG",
+        crs: str = "EPSG:4326",
     ) -> None:
         """
         初始化瓦片服务配置
@@ -53,6 +57,7 @@ class TileServiceConfig:
         self.tile_size = tile_size
         self.cache_size = cache_size
         self.image_format = image_format.upper()
+        self.crs = crs
 
 
 # 缓存管理
@@ -122,8 +127,7 @@ class TileCache:
 # 瓦片服务核心类
 class TileService:
     """瓦片服务核心处理类"""
-
-    def __init__(self, config: TileServiceConfig) -> None:
+    def __init__(self, config: TileServiceConfig, func: Func | None = None) -> None:
         """
         初始化瓦片服务
 
@@ -140,6 +144,7 @@ class TileService:
         self.config = config
         self.cache = TileCache(config.cache_size)
         self.luotu, self.sindex = self._load_spatial_index()
+        self.func = func
 
     def _load_spatial_index(self) -> tuple[GeoDataFrame, SpatialIndex]:
         """
@@ -148,18 +153,18 @@ class TileService:
         Returns:
                 GeoDataFrame和空间索引的元组
         """
-        index_root, index_path, luotu_path = self.config.index_root, self.config.index_path, self.config.luotu_path
+        data_root, index_root, index_path, luotu_path = self.config.data_root, self.config.index_root, self.config.index_path, self.config.luotu_path
         # 检查索引文件是否存在
         if not (
             index_path.exists()
             and luotu_path.exists()
         ):
             # 自动构建索引
-            image_list = list(index_root.rglob("**/*.tif"))
+            image_list = list(data_root.rglob("**/*.tif"))
             if not image_list:
                 # 没有tif文件时，创建空的GeoDataFrame和索引
                 print(
-                    f"警告: 在 {index_root} 中未找到任何.tif文件，将使用空索引"
+                    f"警告: 在 {data_root} 中未找到任何.tif文件，将使用空索引"
                 )
                 empty_gdf = gpd.GeoDataFrame(
                     {"path": [], "geometry": []}, crs="EPSG:4326"
@@ -170,7 +175,7 @@ class TileService:
             image_paths = [str(img) for img in image_list]
             self.build_index(
                 image_paths,
-                self.config.data_root,
+                index_root,
                 luotu_path.name,
                 index_path.name
             )
@@ -190,16 +195,17 @@ class TileService:
         """
 
         # 转换XYZ坐标为地理边界框
-        bbox = convert_xyz_to_bbox((x, y, z))
+        bbox = convert_xyz_to_bbox((x, y, z), self.config.crs)
 
         # 查找相交的图像文件
         intersect_images = filter_intersect_image(self.luotu, self.sindex, bbox)
 
         if not intersect_images:
             # 返回空瓦片
-            return np.zeros(
-                (self.config.tile_size, self.config.tile_size, 3), dtype=np.uint8
-            )
+            # return np.zeros(
+            #     (self.config.tile_size, self.config.tile_size, 3), dtype=np.uint8
+            # )
+            return None
 
         # 加载数据数组
         if len(intersect_images) == 1:
@@ -214,6 +220,8 @@ class TileService:
 
         # 提取瓦片数据
         tile_data = get_tile(dataarray, bbox)
+        if self.func is not None:
+            tile_data = self.func(tile_data)
         return tile_data
 
     def _array_to_image(self, data: np.ndarray, format: str = "PNG") -> bytes:
@@ -286,7 +294,6 @@ class TileService:
         cached_tile = self.cache.get(cache_key)
         if cached_tile:
             return cached_tile
-
         # 获取瓦片数据
         tile_data = self._xyz_to_tile_data(x, y, z)
 
@@ -321,7 +328,7 @@ class TileService:
 
 
 # Flask应用工厂
-def create_app(config: TileServiceConfig) -> Flask:
+def create_app(config: TileServiceConfig, func: Func | None = None) -> Flask:
     """
     创建Flask应用实例
 
@@ -334,7 +341,7 @@ def create_app(config: TileServiceConfig) -> Flask:
     app = Flask(__name__)
 
     # 创建瓦片服务实例
-    tile_service = TileService(config)
+    tile_service = TileService(config, func)
 
     # 注册路由
     register_routes(app, tile_service)
@@ -376,8 +383,8 @@ def register_routes(app: Flask, tile_service: TileService) -> None:
                 tile_bytes,
                 mimetype=content_type,
                 headers={
-                    "Cache-Control": "public, max-age=86400",  # 缓存1天
-                    # "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                    # "Cache-Control": "public, max-age=86400",  # 缓存1天
+                    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
                     "Pragma": "no-cache",
                     "Access-Control-Allow-Origin": "*",
                 },

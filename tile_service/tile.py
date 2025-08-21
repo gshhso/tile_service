@@ -33,7 +33,7 @@ def build_rtree_index(
     for image in image_list:
         with rasterio.open(image) as src:
             bounds.append(box(*src.bounds))
-    luotu = gpd.GeoDataFrame({"path": image_list, "geometry": bounds}, crs="EPSG:4326")  # type: ignore
+    luotu = gpd.GeoDataFrame({"path": image_list, "geometry": bounds})  # type: ignore
 
     # 保存空间索引
     with open(save_root / index_name, "wb") as f:
@@ -87,6 +87,11 @@ def get_tile(dataarray: xr.DataArray, bbox: BBOX) -> np.ndarray:
     return padded.to_numpy().transpose(1, 2, 0)
 
 
-def convert_xyz_to_bbox(xyz: XYZ) -> BBOX:
-    return mercantile.bounds(xyz[0], xyz[1], xyz[2])
-
+def convert_xyz_to_bbox(xyz: XYZ, crs: str) -> BBOX:
+    x1, y1, x2, y2 = mercantile.bounds(xyz[0], xyz[1], xyz[2])
+    # 将经纬度转换为指定坐标系
+    from pyproj import Transformer
+    transformer = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+    x1, y1 = transformer.transform(x1, y1)
+    x2, y2 = transformer.transform(x2, y2)
+    return (x1, y1, x2, y2)
