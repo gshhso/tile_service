@@ -17,20 +17,20 @@
 
 ```bash
 # 安装基础依赖
-pip install git+https://github.com/yourusername/tile_service.git
+pip install git+https://github.com/gshhso/tile_service.git
 
 # 安装开发依赖
-pip install "git+https://github.com/yourusername/tile_service.git#egg=tile-service[dev]"
+pip install "git+https://github.com/gshhso/tile_service.git#egg=tile-service[dev]"
 
 # 安装Jupyter支持
-pip install "git+https://github.com/yourusername/tile_service.git#egg=tile-service[jupyter]"
+pip install "git+https://github.com/gshhso/tile_service.git#egg=tile-service[jupyter]"
 ```
 
 ### 从源码安装
 
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/tile_service.git
+git clone https://github.com/gshhso/tile_service.git
 cd tile_service
 
 # 安装项目及其依赖
