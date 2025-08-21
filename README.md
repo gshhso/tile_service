@@ -13,7 +13,37 @@
 
 ## 安装
 
-使用uv安装依赖：
+### 使用pip安装
+
+```bash
+# 安装基础依赖
+pip install tile-service
+
+# 安装开发依赖
+pip install tile-service[dev]
+
+# 安装Jupyter支持
+pip install tile-service[jupyter]
+```
+
+### 从源码安装
+
+```bash
+# 克隆仓库
+git clone https://github.com/yourusername/tile_service.git
+cd tile_service
+
+# 安装项目及其依赖
+pip install -e .
+
+# 安装开发依赖
+pip install -e ".[dev]"
+
+# 安装Jupyter支持
+pip install -e ".[jupyter]"
+```
+
+### 使用uv安装依赖：
 
 ```bash
 # 安装基础依赖
