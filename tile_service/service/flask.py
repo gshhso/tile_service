@@ -29,7 +29,7 @@ class TileServiceConfig:
 
     def __init__(
         self,
-        data_root: Pathlike,
+        data_root: Pathlike | list[str | Path],
         index_root: Pathlike | None = None,
         index_file: Pathlike = "index.pkl",
         luotu_file: Pathlike = "luotu.geojson",
@@ -37,27 +37,40 @@ class TileServiceConfig:
         cache_size: int = 128,
         image_format: str = "PNG",
         crs: str = "EPSG:4326",
+        force_build_index: bool = False,
     ) -> None:
         """
         初始化瓦片服务配置
 
         Args:
-                data_root: 数据根目录路径
+                data_root: 数据根目录路径,或影像列表txt,或单个影像,或影像路径列表
                 index_root: 索引文件根目录路径,若未提供则为data_root
                 index_file: 空间索引文件路径,若未提供则尝试在data_root下寻找，若仍未找到则触发build index
                 luotu_file: 落图文件路径,若未提供则尝试在data_root下寻找，若仍未找到则触发build index
                 tile_size: 瓦片大小，默认256x256
                 cache_size: 缓存大小限制
                 image_format: 输出图像格式，支持PNG与JPEG
+                force_build_index: 是否强制重建索引, 默认为False
         """
-        self.data_root = Path(data_root)
-        self.index_root = Path(index_root) if index_root else self.data_root
+        self.data_root = data_root
+        if index_root:
+            self.index_root = Path(index_root)
+        else:
+            if isinstance(data_root, list):
+                self.index_root = Path()  # CWD
+            else:
+                p_data_root = Path(data_root)
+                self.index_root = (
+                    p_data_root if p_data_root.is_dir() else p_data_root.parent
+                )
+
         self.index_path = self.index_root / index_file
         self.luotu_path = self.index_root / luotu_file
         self.tile_size = tile_size
         self.cache_size = cache_size
         self.image_format = image_format.upper()
         self.crs = crs
+        self.force_build_index = force_build_index
 
 
 # 缓存管理
@@ -146,6 +159,37 @@ class TileService:
         self.luotu, self.sindex = self._load_spatial_index()
         self.func = func
 
+    @staticmethod
+    def _resolve_image_list(
+        data_source: Pathlike | list[str | Path],
+    ) -> list[Path]:
+        """
+        解析数据源，返回影像文件路径列表
+        """
+        image_list: list[Path]
+        if isinstance(data_source, list):
+            image_list = [Path(p) for p in data_source]
+        else:
+            source_path = Path(data_source)
+            if source_path.is_dir():
+                image_list = list(source_path.rglob("**/*.tif")) + list(
+                    source_path.rglob("**/*.img")
+                )
+            elif source_path.is_file():
+                if source_path.suffix == ".txt":
+                    image_list = [
+                        Path(line.strip())
+                        for line in source_path.read_text().splitlines()
+                        if line.strip()
+                    ]
+                elif source_path.suffix in [".tif", ".img"]:
+                    image_list = [source_path]
+                else:
+                    image_list = []
+            else:  # Not a list, not a file, not a dir. e.g. not existing path
+                image_list = []
+        return image_list
+
     def _load_spatial_index(self) -> tuple[GeoDataFrame, SpatialIndex]:
         """
         加载空间索引和元数据
@@ -153,19 +197,21 @@ class TileService:
         Returns:
                 GeoDataFrame和空间索引的元组
         """
-        data_root, index_root, index_path, luotu_path = self.config.data_root, self.config.index_root, self.config.index_path, self.config.luotu_path
+        data_root, index_root, index_path, luotu_path = (
+            self.config.data_root,
+            self.config.index_root,
+            self.config.index_path,
+            self.config.luotu_path,
+        )
         # 检查索引文件是否存在
-        if not (
-            index_path.exists()
-            and luotu_path.exists()
+        if self.config.force_build_index or not (
+            index_path.exists() and luotu_path.exists()
         ):
             # 自动构建索引
-            image_list = list(data_root.rglob("**/*.tif"))
+            image_list = self._resolve_image_list(data_root)
             if not image_list:
                 # 没有tif文件时，创建空的GeoDataFrame和索引
-                print(
-                    f"警告: 在 {data_root} 中未找到任何.tif文件，将使用空索引"
-                )
+                print(f"警告: 在 {data_root} 中未找到任何.tif文件，将使用空索引")
                 empty_gdf = gpd.GeoDataFrame(
                     {"path": [], "geometry": []}, crs="EPSG:4326"
                 )  # type: ignore
@@ -372,6 +418,8 @@ def register_routes(app: Flask, tile_service: TileService) -> None:
                 包含瓦片图像的HTTP响应
         """
         try:
+            if z<13:
+                raise ValueError("z must be greater than 13")
             tile_bytes = tile_service.get_tile(x, y, z)
 
             # 确定MIME类型
@@ -383,9 +431,9 @@ def register_routes(app: Flask, tile_service: TileService) -> None:
                 tile_bytes,
                 mimetype=content_type,
                 headers={
-                    # "Cache-Control": "public, max-age=86400",  # 缓存1天
+                    "Cache-Control": "public, max-age=86400",  # 缓存1天
                     "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                    "Pragma": "no-cache",
+                    # "Pragma": "no-cache",
                     "Access-Control-Allow-Origin": "*",
                 },
             )
@@ -410,3 +458,4 @@ def register_routes(app: Flask, tile_service: TileService) -> None:
             "cache_size": str(len(tile_service.cache.cache)),
             "tile_format": tile_service.config.image_format,
         }
+
